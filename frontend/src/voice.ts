@@ -127,6 +127,13 @@ export class VoiceCall {
   }
 }
 
+/** Prefer the browser's voice processing for two-way calls. */
+export function openCallMicrophone(): Promise<MediaStream> {
+  return navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  });
+}
+
 export const mmss = (s: number): string => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
 /** Plain-English reason when the microphone cannot be opened. */

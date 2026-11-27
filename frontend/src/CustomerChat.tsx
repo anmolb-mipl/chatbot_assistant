@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, wsUrl } from "./api";
 import type { ChatEvent, Conv, Msg } from "./types";
 import { useSocket } from "./useSocket";
-import { micErrorMessage, mmss, VoiceCall } from "./voice";
+import { micErrorMessage, mmss, openCallMicrophone, VoiceCall } from "./voice";
+import { useCallAudio } from "./useCallAudio";
 
 type Faq = { id: string; question: string };
 
@@ -27,7 +28,7 @@ export default function CustomerChat() {
   const micRef = useRef<MediaStream | null>(null);
   const voiceRef = useRef<VoiceCall | null>(null);
   const startingRef = useRef(false);
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const { audioRef, needsPlayback, play, playStream, clearAudio } = useCallAudio();
   const anchorRef = useRef<HTMLDivElement>(null);
   const [peerTyping, setPeerTyping] = useState(false);          // the agent is typing
   const peerTypingTimer = useRef<number | undefined>(undefined);
@@ -132,27 +133,28 @@ export default function CustomerChat() {
     voiceRef.current = null;
     micRef.current?.getTracks().forEach((t) => t.stop());
     micRef.current = null;
-    if (audioRef.current) audioRef.current.srcObject = null;
+    clearAudio();
     setCallState("");
     setSeconds(0);
     setMuted(false);
-  }, []);
+  }, [clearAudio]);
 
   const beginCall = useCallback(async () => {
     if (!token || !convId || voiceRef.current || startingRef.current) return;
     startingRef.current = true;
     setCallState("connecting");
     try {
-      const stream = micRef.current ?? (await navigator.mediaDevices.getUserMedia({ audio: true }));
+      const existing = micRef.current;
+      const stream = existing?.getAudioTracks().some((track) => track.readyState === "live")
+        ? existing
+        : await openCallMicrophone();
       micRef.current = stream;
       const ice = await api<{ ice_servers: RTCIceServer[] }>(`/api/conversations/${convId}/ice`, { token });
       if (micRef.current !== stream) return;
       const vc = new VoiceCall({
         iceServers: ice.ice_servers,
         send: (kind, data) => api(`/api/conversations/${convId}/signal`, { method: "POST", token, body: { kind, data } }),
-        onRemoteStream: (s) => {
-          if (audioRef.current) audioRef.current.srcObject = s;
-        },
+        onRemoteStream: playStream,
         onState: setCallState,
       });
       voiceRef.current = vc;
@@ -163,7 +165,7 @@ export default function CustomerChat() {
     } finally {
       startingRef.current = false;
     }
-  }, [token, convId, stopCall]);
+  }, [token, convId, playStream, stopCall]);
 
   // start the call as soon as an agent answers; hang up when the chat is closed
   useEffect(() => {
@@ -259,7 +261,7 @@ export default function CustomerChat() {
       if (channel === "call") {
         // Ask for the microphone now (it needs a click) so the call can start the moment an agent answers.
         try {
-          micRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+          micRef.current = await openCallMicrophone();
         } catch (err) {
           setError(micErrorMessage(err));
           return;
@@ -374,7 +376,10 @@ export default function CustomerChat() {
       {status === "live" && isCall && (
         <div className="callbar">
           <span>{callState === "connected" ? `On a call · ${mmss(seconds)}` : callState === "failed" ? "Call connection failed. You can still chat." : "Connecting the call..."}</span>
-          <button className="ghost small" onClick={toggleMute}>{muted ? "Unmute" : "Mute"}</button>
+          {needsPlayback && callState !== "failed" && (
+            <button className="ghost small" onClick={() => void play()}>Enable call audio</button>
+          )}
+          <button className="ghost small" onClick={toggleMute} disabled={callState !== "connected"}>{muted ? "Unmute" : "Mute"}</button>
         </div>
       )}
       <div className="actions">

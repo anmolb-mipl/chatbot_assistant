@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, wsUrl } from "./api";
 import type { ChatEvent, Conv, Msg } from "./types";
 import { useSocket } from "./useSocket";
-import { micErrorMessage, mmss, VoiceCall } from "./voice";
+import { micErrorMessage, mmss, openCallMicrophone, VoiceCall } from "./voice";
+import { useCallAudio } from "./useCallAudio";
 
 type Detail = { conversation: Conv; messages: Msg[] };
 
@@ -62,7 +63,7 @@ export default function AgentConsole() {
   const voiceRef = useRef<VoiceCall | null>(null);
   const acceptingRef = useRef(false);
   const callConvRef = useRef<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const { audioRef, needsPlayback, play, playStream, clearAudio } = useCallAudio();
   const endRef = useRef<HTMLDivElement>(null);
 
   const logout = useCallback(() => {
@@ -136,11 +137,11 @@ export default function AgentConsole() {
     voiceRef.current?.close();
     voiceRef.current = null;
     callConvRef.current = null;
-    if (audioRef.current) audioRef.current.srcObject = null;
+    clearAudio();
     setCallState("");
     setSeconds(0);
     setMuted(false);
-  }, []);
+  }, [clearAudio]);
 
   useEffect(() => {
     if (callState !== "connected") return;
@@ -164,9 +165,7 @@ export default function AgentConsole() {
     const vc = new VoiceCall({
       iceServers: ice.ice_servers,
       send: (kind, data) => call(`/api/agent/conversations/${id}/signal`, "POST", { kind, data }),
-      onRemoteStream: (s) => {
-        if (audioRef.current) audioRef.current.srcObject = s;
-      },
+      onRemoteStream: playStream,
       onState: setCallState,
     });
     vc.attach(stream);   // ready before the customer's offer arrives
@@ -228,7 +227,7 @@ export default function AgentConsole() {
     try {
       if (isCall) {
         try {
-          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream = await openCallMicrophone();
         } catch (err) {
           alert(micErrorMessage(err));
           return;
@@ -349,7 +348,10 @@ export default function AgentConsole() {
         {mine && conv?.channel === "call" && (
           <div className="callbar">
             <span>{callState === "connected" ? `On a call · ${mmss(seconds)}` : callState === "failed" ? "Call connection failed. You can still chat." : "Connecting the call..."}</span>
-            <button className="ghost small" onClick={toggleMute}>{muted ? "Unmute" : "Mute"}</button>
+            {needsPlayback && callState !== "failed" && (
+              <button className="ghost small" onClick={() => void play()}>Enable call audio</button>
+            )}
+            <button className="ghost small" onClick={toggleMute} disabled={callState !== "connected"}>{muted ? "Unmute" : "Mute"}</button>
           </div>
         )}
         <div className="log">
