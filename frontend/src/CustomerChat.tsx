@@ -92,7 +92,7 @@ export default function CustomerChat() {
     }
   }, [token, conv, merge]);
 
-  useSocket(
+  const socketReady = useSocket(
     token && conv ? wsUrl(`/ws/customer?token=${encodeURIComponent(token)}&conversation_id=${conv.id}`) : null,
     (ev: ChatEvent) => {
       if (ev.type === "message.created") {
@@ -108,7 +108,7 @@ export default function CustomerChat() {
         setConv((c) => (c ? { ...c, status: "live", agent_name: ev.agent_name } : c));
       if (ev.type === "queue.closed") setConv((c) => (c ? { ...c, status: "closed" } : c));
       if (ev.type === "queue.timeout") setConv((c) => (c ? { ...c, fallback_sent: true } : c));
-      if (ev.type === "call.signal" && ev.from === "agent") void onSignal(ev.kind, ev.data);
+      if (ev.type === "call.signal" && ev.from === "agent" && ev.conversation_id === conv?.id) void onSignal(ev.kind, ev.data);
     },
     resync
   );
@@ -123,7 +123,7 @@ export default function CustomerChat() {
       if (kind === "answer") await vc.handleAnswer(data);
       else if (kind === "candidate") await vc.addCandidate(data);
     } catch {
-      /* a bad signal should not break the page */
+      vc.fail();
     }
   };
 
@@ -132,6 +132,7 @@ export default function CustomerChat() {
     voiceRef.current = null;
     micRef.current?.getTracks().forEach((t) => t.stop());
     micRef.current = null;
+    if (audioRef.current) audioRef.current.srcObject = null;
     setCallState("");
     setSeconds(0);
     setMuted(false);
@@ -140,15 +141,15 @@ export default function CustomerChat() {
   const beginCall = useCallback(async () => {
     if (!token || !convId || voiceRef.current || startingRef.current) return;
     startingRef.current = true;
+    setCallState("connecting");
     try {
       const stream = micRef.current ?? (await navigator.mediaDevices.getUserMedia({ audio: true }));
       micRef.current = stream;
       const ice = await api<{ ice_servers: RTCIceServer[] }>(`/api/conversations/${convId}/ice`, { token });
+      if (micRef.current !== stream) return;
       const vc = new VoiceCall({
         iceServers: ice.ice_servers,
-        send: (kind, data) => {
-          void api(`/api/conversations/${convId}/signal`, { method: "POST", token, body: { kind, data } }).catch(() => {});
-        },
+        send: (kind, data) => api(`/api/conversations/${convId}/signal`, { method: "POST", token, body: { kind, data } }),
         onRemoteStream: (s) => {
           if (audioRef.current) audioRef.current.srcObject = s;
         },
@@ -157,8 +158,8 @@ export default function CustomerChat() {
       voiceRef.current = vc;
       await vc.startCaller(stream);
     } catch {
-      setError("Could not start the call. Check microphone permission, or use chat instead.");
       stopCall();
+      setCallState("failed");
     } finally {
       startingRef.current = false;
     }
@@ -166,9 +167,9 @@ export default function CustomerChat() {
 
   // start the call as soon as an agent answers; hang up when the chat is closed
   useEffect(() => {
-    if (conv?.status === "live" && conv.channel === "call") void beginCall();
+    if (socketReady && conv?.status === "live" && conv.channel === "call") void beginCall();
     if (conv?.status === "closed") stopCall();
-  }, [conv?.status, conv?.channel, beginCall, stopCall]);
+  }, [socketReady, conv?.status, conv?.channel, beginCall, stopCall]);
 
   useEffect(() => {
     if (callState !== "connected") return;
@@ -266,7 +267,8 @@ export default function CustomerChat() {
       }
       const r = await api<SendRes>(`/api/conversations/${conv.id}/handoff`, { method: "POST", token, body: { channel } });
       merge(r.messages);
-      setConv((c) => (c ? { ...c, status: r.status, channel } : c));
+      setConv((c) => (c?.status === "bot" || c?.status === "live"
+        ? { ...c, status: c.status === "live" ? "live" : r.status, channel } : c));
     } catch (e: any) {
       micRef.current?.getTracks().forEach((t) => t.stop());
       micRef.current = null;
@@ -371,7 +373,7 @@ export default function CustomerChat() {
 
       {status === "live" && isCall && (
         <div className="callbar">
-          <span>{callState === "connected" ? `On a call · ${mmss(seconds)}` : callState === "failed" ? "Call connection failed" : "Connecting the call..."}</span>
+          <span>{callState === "connected" ? `On a call · ${mmss(seconds)}` : callState === "failed" ? "Call connection failed. You can still chat." : "Connecting the call..."}</span>
           <button className="ghost small" onClick={toggleMute}>{muted ? "Unmute" : "Mute"}</button>
         </div>
       )}

@@ -52,6 +52,38 @@ Render shows your address, like `https://tradewise-support-xxxx.onrender.com`.
 3. Say "connect me to an agent", pick Chat. Sign in at `/agent` and accept. Try typing indicators both ways.
 4. Try a Call between phone and computer (the site is HTTPS, so the microphone works).
 
+## Update an existing deployment
+
+Copy the fixed files into your existing repository, commit, and push to the branch
+already connected to Render. In the existing Render web service, use **Manual
+Deploy → Deploy latest commit** if auto-deploy is off. Keep your existing
+database, JWT secrets, `SEED_AGENTS`, and `GEMINI_API_KEY`. Refresh both browser tabs
+and start a new conversation before testing the fixes.
+
+### Verify voice across networks
+
+Test a customer on mobile data and an agent on Wi-Fi. Allow both microphones.
+If peer-to-peer audio cannot connect, configure a TURN relay under the service's
+**Environment** settings and redeploy:
+
+- `TURN_URL` — provider-supplied URL(s), separated by commas. Include the provider's
+  TURN-over-TLS endpoint on TCP 443 if available, such as
+  `turns:relay.example.com:443?transport=tcp`.
+- `TURN_USERNAME` — relay username.
+- `TURN_CREDENTIAL` — relay password or credential accepted by the relay.
+
+Use demo-scoped TURN credentials with provider-side limits. Both browsers must
+receive the credentials to use the relay. Render hosts the signaling app and the
+TURN provider relays audio when the peers cannot connect directly.
+
+### Verify Gemini handoff
+
+Send two consecutive questions that Gemini cannot answer. A timeout, API error,
+empty reply, or request for clarification counts as one unanswered turn. A
+successful answer resets the count. The second unanswered turn creates a text
+chat request in the agent queue. An explicit request for an agent still shows the
+Chat / Call choice.
+
 ## If something fails
 Render dashboard -> your service -> **Logs** (build logs and run logs). Send me the last 30 lines.
 - Bot says "had trouble answering": wrong key or model name. In Render -> Environment add `GEMINI_MODEL` with a model name that exists for your key.
@@ -60,5 +92,5 @@ Render dashboard -> your service -> **Logs** (build logs and run logs). Send me 
 ## What to expect from the free plan
 - After 15 minutes with no traffic it sleeps; the next visit takes about a minute to wake. An open agent console keeps it awake.
 - Chats are stored in the free database, which expires after 30 days. Back up anything important.
-- Voice calls can fail on strict networks (no TURN server on this setup).
+- Voice calls can fail on strict networks unless a TURN relay is configured.
 - Anyone with the link can use the chat and your Gemini quota (a global limit of 120 bot messages a minute applies). Share the link only with testers.

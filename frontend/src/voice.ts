@@ -1,6 +1,6 @@
 /** One-to-one voice call in the browser (WebRTC). Audio goes directly between the customer and the agent;
  *  our server only passes the connection set-up messages ("signals"). */
-export type SendSignal = (kind: "offer" | "answer" | "candidate", data: unknown) => void;
+export type SendSignal = (kind: "offer" | "answer" | "candidate", data: unknown) => Promise<unknown>;
 
 export class VoiceCall {
   private pc: RTCPeerConnection;
@@ -8,6 +8,11 @@ export class VoiceCall {
   private remoteSet = false;
   private local: MediaStream | null = null;
   private send: SendSignal;
+  private localCandidates: RTCIceCandidateInit[] = [];
+  private descriptionSent = false;
+  private closed = false;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private onState: (state: string) => void;
 
   constructor(opts: {
     iceServers: RTCIceServer[];
@@ -16,12 +21,42 @@ export class VoiceCall {
     onState: (s: string) => void;
   }) {
     this.send = opts.send;
+    this.onState = opts.onState;
     this.pc = new RTCPeerConnection({ iceServers: opts.iceServers });
-    this.pc.onicecandidate = (e) => {
-      if (e.candidate) this.send("candidate", e.candidate.toJSON());
+    this.pc.onicecandidate = ({ candidate }) => {
+      if (this.closed || !candidate) return;
+      const data = candidate.toJSON();
+      if (this.descriptionSent) this.sendCandidate(data);
+      else this.localCandidates.push(data);
     };
-    this.pc.ontrack = (e) => opts.onRemoteStream(e.streams[0]);
-    this.pc.onconnectionstatechange = () => opts.onState(this.pc.connectionState);
+    this.pc.ontrack = (e) => opts.onRemoteStream(e.streams[0] ?? new MediaStream([e.track]));
+    this.pc.onconnectionstatechange = () => {
+      const state = this.pc.connectionState;
+      if (state === "failed") {
+        this.fail();
+        return;
+      }
+      if (state === "connected") clearTimeout(this.timer);
+      if (state === "disconnected") this.startDeadline();
+      this.onState(state);
+    };
+  }
+
+  private startDeadline(): void {
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.fail(), 25000);
+  }
+
+  private sendCandidate(candidate: RTCIceCandidateInit): void {
+    void this.send("candidate", candidate).catch(() => this.fail());
+  }
+
+  private async sendDescription(kind: "offer" | "answer", description: RTCSessionDescriptionInit): Promise<void> {
+    await this.send(kind, description);
+    if (this.closed) return;
+    this.descriptionSent = true;
+    for (const candidate of this.localCandidates) this.sendCandidate(candidate);
+    this.localCandidates = [];
   }
 
   /** Add our microphone to the call. */
@@ -33,18 +68,20 @@ export class VoiceCall {
   /** Caller (the customer) starts the call. */
   async startCaller(stream: MediaStream): Promise<void> {
     this.attach(stream);
+    this.startDeadline();
     const offer = await this.pc.createOffer();
     await this.pc.setLocalDescription(offer);
-    this.send("offer", { type: offer.type, sdp: offer.sdp });
+    await this.sendDescription("offer", offer);
   }
 
   /** Callee (the agent) answers the caller's offer. */
   async handleOffer(desc: RTCSessionDescriptionInit): Promise<void> {
+    this.startDeadline();
     await this.pc.setRemoteDescription(desc);
     await this.flush();
     const answer = await this.pc.createAnswer();
     await this.pc.setLocalDescription(answer);
-    this.send("answer", { type: answer.type, sdp: answer.sdp });
+    await this.sendDescription("answer", answer);
   }
 
   async handleAnswer(desc: RTCSessionDescriptionInit): Promise<void> {
@@ -68,7 +105,23 @@ export class VoiceCall {
     this.local?.getAudioTracks().forEach((t) => (t.enabled = !muted));
   }
 
+  waitForOffer(): void {
+    if (!this.closed && !this.remoteSet) this.startDeadline();
+  }
+
+  fail(): void {
+    if (this.closed) return;
+    this.close();
+    this.onState("failed");
+  }
+
   close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    clearTimeout(this.timer);
+    this.pc.onconnectionstatechange = null;
+    this.pc.ontrack = null;
+    this.pc.onicecandidate = null;
     this.local?.getTracks().forEach((t) => t.stop());
     this.pc.close();
   }

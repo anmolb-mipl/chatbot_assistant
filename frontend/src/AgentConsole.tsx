@@ -60,6 +60,7 @@ export default function AgentConsole() {
   const [callState, setCallState] = useState("");
   const [seconds, setSeconds] = useState(0);
   const voiceRef = useRef<VoiceCall | null>(null);
+  const acceptingRef = useRef(false);
   const callConvRef = useRef<string | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -135,6 +136,7 @@ export default function AgentConsole() {
     voiceRef.current?.close();
     voiceRef.current = null;
     callConvRef.current = null;
+    if (audioRef.current) audioRef.current.srcObject = null;
     setCallState("");
     setSeconds(0);
     setMuted(false);
@@ -153,18 +155,15 @@ export default function AgentConsole() {
       if (kind === "offer") await vc.handleOffer(data);
       else if (kind === "candidate") await vc.addCandidate(data);
     } catch {
-      /* a bad signal should not break the page */
+      vc.fail();
     }
   };
 
   const prepareCallee = async (id: string, stream: MediaStream) => {
     const ice = await call<{ ice_servers: RTCIceServer[] }>("/api/agent/ice");
-    stopCall();
     const vc = new VoiceCall({
       iceServers: ice.ice_servers,
-      send: (kind, data) => {
-        void call(`/api/agent/conversations/${id}/signal`, "POST", { kind, data }).catch(() => {});
-      },
+      send: (kind, data) => call(`/api/agent/conversations/${id}/signal`, "POST", { kind, data }),
       onRemoteStream: (s) => {
         if (audioRef.current) audioRef.current.srcObject = s;
       },
@@ -173,6 +172,8 @@ export default function AgentConsole() {
     vc.attach(stream);   // ready before the customer's offer arrives
     voiceRef.current = vc;
     callConvRef.current = id;
+    setCallState("connecting");
+    return vc;
   };
 
   const toggleMute = () => {
@@ -181,11 +182,11 @@ export default function AgentConsole() {
     voiceRef.current?.setMuted(next);
   };
 
-  useSocket(
+  const socketReady = useSocket(
     token ? wsUrl(`/ws/agent?token=${encodeURIComponent(token)}`) : null,
     (ev: ChatEvent) => {
       if (ev.type === "queue.waiting" && !busy && ev.channel !== "call") beep();   // calls ring continuously instead
-      if (ev.type === "call.signal" && ev.from === "customer") void onSignal(ev.kind, ev.data);
+      if (ev.type === "call.signal" && ev.from === "customer" && ev.conversation_id === callConvRef.current) void onSignal(ev.kind, ev.data);
       if (ev.type === "queue.closed" && ev.conversation_id === callConvRef.current) stopCall();
       if (ev.type.startsWith("queue.")) loadList();
       if (ev.type === "typing" && ev.from === "customer" && ev.conversation_id === selected) {
@@ -208,39 +209,48 @@ export default function AgentConsole() {
     }
   );
 
+  useEffect(() => {
+    if (!token) stopCall();
+  }, [token, stopCall]);
+
   const accept = async (id: string | null = selected) => {
-    if (!id) return;
+    if (!id || acceptingRef.current || busy) return;
     const target = activeList.find((c) => c.id === id) ?? (detail?.conversation.id === id ? detail.conversation : undefined);
     const isCall = target?.channel === "call";
-    let stream: MediaStream | null = null;
-    if (isCall) {
-      // the microphone must be opened from this click
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      } catch (err) {
-        alert(micErrorMessage(err));
-        return;
-      }
+    if (isCall && !socketReady) {
+      alert("The connection to the server is reconnecting. Try answering again in a moment.");
+      return;
     }
+
+    acceptingRef.current = true;
+    let stream: MediaStream | null = null;
+    let callee: VoiceCall | null = null;
     try {
-      await call(`/api/agent/conversations/${id}/accept`, "POST");
-      if (isCall && stream) {
+      if (isCall) {
         try {
-          await prepareCallee(id, stream);
-        } catch {
-          alert("Could not set up audio for this call. You can still chat with the customer.");
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } catch (err) {
+          alert(micErrorMessage(err));
+          return;
         }
+        // Accept notifies the customer immediately. The agent must be ready for their offer first.
+        callee = await prepareCallee(id, stream);
       }
+      await call(`/api/agent/conversations/${id}/accept`, "POST");
+      callee?.waitForOffer();
       setSelected(id);
       loadDetail(id);
       loadList();
     } catch (e: any) {
-      stream?.getTracks().forEach((t) => t.stop());
-      alert(e.message);
-      if (e instanceof ApiError && e.status === 403) return;   // you are busy; keep the chat selected
+      if (callee && voiceRef.current === callee) stopCall();
+      else stream?.getTracks().forEach((t) => t.stop());
+      alert(e.message || "Could not answer the call. Please try again.");
+      if (e instanceof ApiError && e.status === 403) return;
       setSelected(null);
       setDetail(null);
       loadList();
+    } finally {
+      acceptingRef.current = false;
     }
   };
 
@@ -338,7 +348,7 @@ export default function AgentConsole() {
         </div>
         {mine && conv?.channel === "call" && (
           <div className="callbar">
-            <span>{callState === "connected" ? `On a call · ${mmss(seconds)}` : callState === "failed" ? "Call connection failed" : "Connecting the call..."}</span>
+            <span>{callState === "connected" ? `On a call · ${mmss(seconds)}` : callState === "failed" ? "Call connection failed. You can still chat." : "Connecting the call..."}</span>
             <button className="ghost small" onClick={toggleMute}>{muted ? "Unmute" : "Mute"}</button>
           </div>
         )}

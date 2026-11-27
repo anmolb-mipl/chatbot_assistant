@@ -1,4 +1,5 @@
 """Gemini with tool use. The key is read from settings (environment), never sent to the browser."""
+import asyncio
 import logging
 import re
 from dataclasses import dataclass
@@ -62,7 +63,7 @@ async def run_bot(db: AsyncSession, customer_id: str, history: list[tuple[str, s
     needs_agent = False
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_model}:generateContent"
     try:
-        async with httpx.AsyncClient(timeout=25) as client:
+        async with asyncio.timeout(18), httpx.AsyncClient(timeout=15) as client:
             for _ in range(4):  # tool loop: model asks -> we run -> model answers
                 body = {
                     "systemInstruction": {"parts": [{"text": f"{RULES}\n\nKNOWLEDGE:\n{KNOWLEDGE}\n\nfailed attempts so far: {misses}"}]},
@@ -74,9 +75,11 @@ async def run_bot(db: AsyncSession, customer_id: str, history: list[tuple[str, s
                 parts = content.get("parts", [])
                 calls = [p["functionCall"] for p in parts if "functionCall" in p]
                 if not calls:
-                    text = "".join(p.get("text", "") for p in parts).strip()
+                    text = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
+                    if not text or content.get("role") not in (None, "model"):
+                        return BotResult("error", "I didn’t get a reply from the assistant. Please try again.")
                     if text.startswith("[CLARIFY]"):
-                        return BotResult("clarify", text[9:].strip())
+                        return BotResult("clarify", text[9:].strip() or "Could you give me more detail?")
                     return BotResult("answer", text)
                 contents.append(content)
                 results = []
@@ -94,7 +97,10 @@ async def run_bot(db: AsyncSession, customer_id: str, history: list[tuple[str, s
                         out = {"error": "unknown tool"}
                     results.append({"functionResponse": {"name": name, "response": out}})
                 contents.append({"role": "user", "parts": results})
-    except Exception:
-        log.exception("Gemini call failed")
+    except httpx.HTTPStatusError as exc:
+        log.warning("Gemini request failed with HTTP %s", exc.response.status_code)
+        return BotResult("error", "Sorry, I had trouble answering. Please try again.")
+    except (TimeoutError, httpx.RequestError, ValueError, LookupError, TypeError, AttributeError) as exc:
+        log.warning("Gemini request did not produce a usable reply (%s)", type(exc).__name__)
         return BotResult("error", "Sorry, I had trouble answering. Please try again.")
     return BotResult("clarify", "Sorry, I couldn't finish that. Could you rephrase?")

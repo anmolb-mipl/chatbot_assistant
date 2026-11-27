@@ -46,8 +46,8 @@ class RatingIn(BaseModel):
     comment: str = Field(default="", max_length=500)
 
 
-async def _own(db: AsyncSession, cid: str, customer_id: str) -> Conversation:
-    conv = await db.get(Conversation, cid)
+async def _own(db: AsyncSession, cid: str, customer_id: str, *, lock: bool = False) -> Conversation:
+    conv = await db.get(Conversation, cid, with_for_update=lock)
     if not conv or conv.customer_id != customer_id:
         raise HTTPException(404, "Conversation not found")
     return conv
@@ -91,7 +91,7 @@ async def handoff(cid: str, body: HandoffIn | None = None, customer_id: str = De
 
 @router.post("/{cid}/messages")
 async def send_message(cid: str, body: MessageIn, customer_id: str = Depends(current_customer), db: AsyncSession = Depends(get_db)):
-    conv = await _own(db, cid, customer_id)
+    conv = await _own(db, cid, customer_id, lock=True)
     if conv.status == "closed":
         raise HTTPException(409, "This chat has ended")
     text = body.text.strip()
@@ -137,14 +137,16 @@ async def send_message(cid: str, body: MessageIn, customer_id: str = Depends(cur
     history = [(r.sender, r.text) for r in rows]
     result = await run_bot(db, customer_id, history, conv.bot_misses, bool(HUMAN_RE.search(text)))
 
-    if result.action == "handoff":
-        notice = await request_agent(db, conv, result.summary or "Customer needs help")
-        return {"status": "waiting", "messages": [msg_dict(user_msg)] + [msg_dict(m) for m in notice]}
-
-    if result.action == "clarify":
+    if result.action in {"clarify", "error"}:
         conv.bot_misses += 1
     elif result.action == "answer":
         conv.bot_misses = 0
+
+    if result.action == "handoff" or conv.bot_misses >= 2:
+        summary = "Assistant could not help after two attempts" if result.action != "handoff" else result.summary
+        notice = await request_agent(db, conv, summary or "Customer needs help")
+        return {"status": "waiting", "messages": [msg_dict(user_msg)] + [msg_dict(m) for m in notice]}
+
     bot_msg = await add_message(db, conv, "bot", result.text)
     await db.commit()
     return {"status": "bot", "messages": [msg_dict(user_msg), msg_dict(bot_msg)]}

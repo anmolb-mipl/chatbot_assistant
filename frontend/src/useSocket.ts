@@ -1,8 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ChatEvent } from "./types";
 
 /** WebSocket that reconnects by itself. onOpen runs on every (re)connect so callers can re-sync missed data. */
 export function useSocket(url: string | null, onEvent: (e: ChatEvent) => void, onOpen?: () => void) {
+  const [openUrl, setOpenUrl] = useState<string | null>(null);
   const eventRef = useRef(onEvent);
   const openRef = useRef(onOpen);
   eventRef.current = onEvent;
@@ -16,7 +17,11 @@ export function useSocket(url: string | null, onEvent: (e: ChatEvent) => void, o
 
     const connect = () => {
       ws = new WebSocket(url);
-      ws.onopen = () => openRef.current?.();
+      ws.onopen = () => {
+        if (stopped) return;
+        setOpenUrl(url);
+        openRef.current?.();
+      };
       ws.onmessage = (ev) => {
         try {
           eventRef.current(JSON.parse(ev.data) as ChatEvent);
@@ -25,7 +30,9 @@ export function useSocket(url: string | null, onEvent: (e: ChatEvent) => void, o
         }
       };
       ws.onclose = () => {
-        if (!stopped) retry = window.setTimeout(connect, 2000);
+        if (stopped) return;
+        setOpenUrl(null);
+        retry = window.setTimeout(connect, 2000);
       };
     };
     connect();
@@ -35,9 +42,12 @@ export function useSocket(url: string | null, onEvent: (e: ChatEvent) => void, o
 
     return () => {
       stopped = true;
+      setOpenUrl(null);
       window.clearTimeout(retry);
       window.clearInterval(ping);
       ws?.close();
     };
   }, [url]);
+
+  return url !== null && openUrl === url;
 }

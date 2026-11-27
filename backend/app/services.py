@@ -61,9 +61,11 @@ async def claim_conversation(db: AsyncSession, conv_id: str, agent_id: int, max_
 
 def ice_servers() -> list[dict]:
     """Network helpers for voice calls. STUN finds the public address; a TURN relay is needed when direct connections are blocked."""
-    servers: list[dict] = [{"urls": [u.strip() for u in settings.stun_urls.split(",") if u.strip()]}]
-    if settings.turn_url:
-        servers.append({"urls": [settings.turn_url], "username": settings.turn_username, "credential": settings.turn_credential})
+    stun_urls = [url.strip() for url in settings.stun_urls.split(",") if url.strip()]
+    turn_urls = [url.strip() for url in settings.turn_url.split(",") if url.strip()]
+    servers: list[dict] = [{"urls": stun_urls}] if stun_urls else []
+    if turn_urls and settings.turn_username and settings.turn_credential:
+        servers.append({"urls": turn_urls, "username": settings.turn_username, "credential": settings.turn_credential})
     return servers
 
 
