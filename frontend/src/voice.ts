@@ -7,6 +7,8 @@ export class VoiceCall {
   private pending: RTCIceCandidateInit[] = [];
   private remoteSet = false;
   private local: MediaStream | null = null;
+  private microphoneSender: RTCRtpSender | null = null;
+  private muted = false;
   private send: SendSignal;
   private localCandidates: RTCIceCandidateInit[] = [];
   private descriptionSent = false;
@@ -62,7 +64,9 @@ export class VoiceCall {
   /** Add our microphone to the call. */
   attach(stream: MediaStream): void {
     this.local = stream;
-    stream.getTracks().forEach((t) => this.pc.addTrack(t, stream));
+    const track = stream.getAudioTracks()[0];
+    if (!track) throw new Error("No audio track available.");
+    this.microphoneSender = this.pc.addTrack(track, stream);
   }
 
   /** Caller (the customer) starts the call. */
@@ -101,7 +105,43 @@ export class VoiceCall {
     this.pending = [];
   }
 
+  get microphoneId(): string {
+    return this.microphoneSender?.track?.getSettings().deviceId ?? "";
+  }
+
+  async changeMicrophone(deviceId: string): Promise<void> {
+    const sender = this.microphoneSender;
+    if (!sender || this.closed) return;
+    const stream = await openCallMicrophone(deviceId);
+    const track = stream.getAudioTracks()[0];
+    try {
+      if (!track || this.closed) throw new Error("The call has ended.");
+      track.enabled = !this.muted;
+      await sender.replaceTrack(track);
+      if (this.closed) throw new Error("The call has ended.");
+      track.enabled = !this.muted;
+    } catch (err) {
+      stream.getTracks().forEach(t => t.stop());
+      throw err;
+    }
+    this.local?.getTracks().forEach(t => t.stop());
+    this.local = stream;
+  }
+
+  async audioLevel(incoming: boolean): Promise<number | undefined> {
+    const reports = await this.pc.getStats();
+    let level: number | undefined;
+    reports.forEach(report => {
+      const type = incoming ? "inbound-rtp" : "media-source";
+      if (report.type === type && report.kind === "audio" && typeof report.audioLevel === "number") {
+        level = Math.max(level ?? 0, report.audioLevel);
+      }
+    });
+    return level;
+  }
+
   setMuted(muted: boolean): void {
+    this.muted = muted;
     this.local?.getAudioTracks().forEach((t) => (t.enabled = !muted));
   }
 
@@ -128,9 +168,9 @@ export class VoiceCall {
 }
 
 /** Prefer the browser's voice processing for two-way calls. */
-export function openCallMicrophone(): Promise<MediaStream> {
+export function openCallMicrophone(deviceId?: string): Promise<MediaStream> {
   return navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    audio: { deviceId: deviceId ? { exact: deviceId } : undefined, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
   });
 }
 
