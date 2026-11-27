@@ -1,0 +1,11 @@
+.env
+backend/.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+node_modules/
+dist/
+*.db
+local.db
+chats.json

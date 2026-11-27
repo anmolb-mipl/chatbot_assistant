@@ -1,0 +1,62 @@
+{
+  "faqs": [
+    {
+      "id": "open-account",
+      "question": "How do I open a demat account?",
+      "answer": "Opening an account takes about 10 minutes:\n1. Enter your mobile number and verify the OTP.\n2. Add your PAN, Aadhaar and bank details.\n3. Complete the e-sign and a quick selfie check.\nYour account is usually active within 1 to 2 working days.",
+      "triggers": ["open demat account", "open account", "how to open account", "how to open demat account", "create account"]
+    },
+    {
+      "id": "brokerage",
+      "question": "What are the brokerage charges?",
+      "answer": "Delivery trades have low or zero brokerage. Intraday and F&O orders carry a small flat fee per order. Government taxes and exchange charges apply on top. The full table is in Profile > Pricing.",
+      "triggers": ["brokerage charges", "brokerage", "what are the charges", "charges"]
+    },
+    {
+      "id": "funds",
+      "question": "How do I add or withdraw funds?",
+      "answer": "To add: Funds > Add money, then pay by UPI or net banking.\nTo withdraw: Funds > Withdraw, pick your linked bank. Withdrawals reach your bank in 1 working day for most banks.",
+      "triggers": ["add money", "add funds", "withdraw money", "withdraw funds", "how to withdraw", "how to add money"]
+    },
+    {
+      "id": "first-order",
+      "question": "How do I place my first order?",
+      "answer": "Search the stock, tap Buy, choose quantity, then pick Market or Limit. Review the amount and confirm. Orders show under the Orders tab, where you can also modify or cancel pending ones.",
+      "triggers": ["place order", "how to place order", "first order", "how to buy shares"]
+    },
+    {
+      "id": "kyc",
+      "question": "Why is my KYC pending or rejected?",
+      "answer": "KYC is usually rejected for a PAN and Aadhaar name mismatch, a blurry document or an unlinked mobile number. Open Profile > KYC status to see the exact reason, fix it and resubmit.",
+      "triggers": ["kyc pending", "kyc rejected", "kyc status", "why is my kyc pending"]
+    },
+    {
+      "id": "app-issue",
+      "question": "The app is slow or my order failed",
+      "answer": "Try this first: update the app, check your internet, then log out and back in. If an order failed, check the Orders tab for the reason (usually insufficient margin or a price outside the circuit limit).",
+      "triggers": ["app is slow", "app not working", "order failed"]
+    }
+  ],
+  "smalltalk": [
+    {
+      "pattern": "^(hi+|hello+|hey+|hola|namaste|good (morning|afternoon|evening))( there| team| bot)?[\\s!.,?]*$",
+      "reply": "Hello! How can I help you today?",
+      "show_faqs": true
+    },
+    {
+      "pattern": "^(thanks|thank you|thankyou|thx|ok thanks|okay thanks|great thanks)[\\s!.,]*$",
+      "reply": "You're welcome! Let me know if you need anything else.",
+      "show_faqs": false
+    },
+    {
+      "pattern": "^(bye|goodbye|ok bye|see you)[\\s!.,]*$",
+      "reply": "Goodbye! Happy investing.",
+      "show_faqs": false
+    },
+    {
+      "pattern": "(which stock|what to buy|stock tip|target price|will it go up|best stock|guaranteed return|should i invest)",
+      "reply": "I can't give stock tips or investment advice. I can help with your account, orders, funds and charges. Would you like to talk to an agent instead?",
+      "show_faqs": true
+    }
+  ]
+}

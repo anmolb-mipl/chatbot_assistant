@@ -1,0 +1,36 @@
+# Render Blueprint: one free web service (website + API in one container) and one free Postgres database.
+services:
+  - type: web
+    name: tradewise-support
+    runtime: docker
+    plan: free
+    region: singapore            # closest to India; the database below must use the same region
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: ENV
+        value: dev               # demo mode: each visitor gets their own demo customer. NOT for real customers.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tradewise-db
+          property: connectionString
+      - key: REDIS_URL
+        value: ""                # no Redis: live events stay inside the single process
+      - key: AUTO_CREATE_TABLES
+        value: "true"
+      - key: AGENT_JWT_SECRET
+        generateValue: true
+      - key: CUSTOMER_JWT_SECRET
+        generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false              # you type it in the Render dashboard; it is never stored in the repo
+      - key: SEED_AGENTS
+        sync: false              # riya:Riya:password;aman:Aman:password2
+
+databases:
+  - name: tradewise-db
+    plan: free
+    region: singapore
+    databaseName: tradewise
+    user: tradewise
