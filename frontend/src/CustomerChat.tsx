@@ -5,8 +5,6 @@ import { useSocket } from "./useSocket";
 import { micErrorMessage, mmss, openCallMicrophone, VoiceCall } from "./voice";
 import { useCallAudio } from "./useCallAudio";
 
-import { CallLevel, MicrophoneControls } from "./CallAudioControls";
-
 type Faq = { id: string; question: string };
 
 type OpenRes = { conversation: Conv; messages: Msg[] };
@@ -383,10 +381,6 @@ export default function CustomerChat() {
       {status === "live" && isCall && (
         <div className="callbar">
           <span>{callState === "connected" ? `On a call · ${mmss(seconds)}` : callState === "failed" ? "Call connection failed. You can still chat." : "Connecting the call..."}</span>
-          {callState === "connected" && voiceRef.current && <>
-            {muted ? <span>Microphone muted</span> : <CallLevel call={voiceRef.current} incoming={false} />}
-            <MicrophoneControls call={voiceRef.current} />
-          </>}
           {needsPlayback && callState !== "failed" && (
             <button className="ghost small" onClick={() => void play()}>Enable call audio</button>
           )}

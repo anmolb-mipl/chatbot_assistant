@@ -56,8 +56,7 @@ body{display:flex;justify-content:center}
 
 /* voice calls */
 .choose{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:0 14px 8px;font-size:14px}
-.callbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:10px 16px;background:var(--bot);border-top:1px solid var(--line);font-weight:600}
-.callbar select{max-width:100%}
+.callbar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 16px;background:var(--bot);border-top:1px solid var(--line);font-weight:600}
 .callbar .ghost.small{padding:6px 14px}
 .ringing{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:12px 16px;background:var(--agent);color:var(--agent-ink);font-weight:600;animation:ringpulse 1s infinite}
 .ringing button{border:0;background:var(--brand);color:var(--brand-ink);padding:8px 16px;border-radius:99px;font-weight:600}

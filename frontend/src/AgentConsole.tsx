@@ -5,8 +5,6 @@ import { useSocket } from "./useSocket";
 import { micErrorMessage, mmss, openCallMicrophone, VoiceCall } from "./voice";
 import { useCallAudio } from "./useCallAudio";
 
-import { CallLevel } from "./CallAudioControls";
-
 type Detail = { conversation: Conv; messages: Msg[] };
 
 function beep() {
@@ -350,7 +348,6 @@ export default function AgentConsole() {
         {mine && conv?.channel === "call" && (
           <div className="callbar">
             <span>{callState === "connected" ? `On a call · ${mmss(seconds)}` : callState === "failed" ? "Call connection failed. You can still chat." : "Connecting the call..."}</span>
-            {callState === "connected" && voiceRef.current && <CallLevel call={voiceRef.current} incoming />}
             {needsPlayback && callState !== "failed" && (
               <button className="ghost small" onClick={() => void play()}>Enable call audio</button>
             )}
